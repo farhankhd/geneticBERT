@@ -208,7 +208,7 @@ def distributed_concat(tensor, num_total_examples, world_size):
     合并不同进程的inference结果
     """
     output_tensors = [tensor.clone() for _ in range(world_size)]
-    torch.distributed.all_gather(output_tensors, tensor)
+    # torch.distributed.all_gather(output_tensors, tensor)
     concat = torch.cat(output_tensors, dim=0)
     # truncate the dummy elements added by SequentialDistributedSampler
     return concat[:num_total_examples]

@@ -11,7 +11,8 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 from sklearn.model_selection import train_test_split, ShuffleSplit, StratifiedShuffleSplit, StratifiedKFold
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, precision_recall_fscore_support, classification_report
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix, precision_recall_fscore_support, \
+    classification_report
 import torch
 from torch import nn
 from torch.optim import Adam, SGD, AdamW
@@ -39,13 +40,20 @@ parser.add_argument("--learning_rate", type=float, default=1e-4, help='Learning 
 parser.add_argument("--grad_acc", type=int, default=60, help='Number of gradient accumulation.')
 parser.add_argument("--valid_every", type=int, default=1, help='Number of training epochs between twice validation.')
 parser.add_argument("--pos_embed", type=bool, default=True, help='Using Gene2vec encoding or not.')
-parser.add_argument("--data_path", type=str, default='./data/Zheng68K.h5ad', help='Path of data for finetune.')
-parser.add_argument("--model_path", type=str, default='./panglao_pretrained.pth', help='Path of pretrained model.')
+parser.add_argument("--data_path", type=str, default='/home/rohola/codes/geneticBERT/data/Zheng68K.h5ad', help='Path of data for finetune.')
+parser.add_argument("--model_path", type=str, default='/home/rohola/codes/geneticBERT/data/panglao_pretrained.pth', help='Path of pretrained model.')
+parser.add_argument("--gene2vec_path", type=str, default='/home/rohola/codes/geneticBERT/data/gene2vec_16906.npy', help='Path of pretrained model.')
 parser.add_argument("--ckpt_dir", type=str, default='./ckpts/', help='Directory of checkpoint to save.')
 parser.add_argument("--model_name", type=str, default='finetune', help='Finetuned model name.')
 
 args = parser.parse_args()
-rank = int(os.environ["RANK"])
+# rank = int(os.environ["RANK"])
+# os.environ["RANK"] = "1"
+# os.environ["WORLD_SIZE"] = "1"
+# os.environ["MASTER_ADDR"] = "localhost"
+# os.environ["MASTER_PORT"] = "12355"
+world_size = 1
+
 local_rank = args.local_rank
 is_master = local_rank == 0
 
@@ -66,12 +74,13 @@ POS_EMBED_USING = args.pos_embed
 model_name = args.model_name
 ckpt_dir = args.ckpt_dir
 
-dist.init_process_group(backend='nccl')
-torch.cuda.set_device(local_rank)
-device = torch.device("cuda", local_rank)
-world_size = torch.distributed.get_world_size()
+# dist.init_process_group(backend='nccl')
+# torch.cuda.set_device(local_rank)
+# device = torch.device("cuda", local_rank)
+device = torch.device("cpu")
+# world_size = torch.distributed.get_world_size()
 
-seed_all(SEED + torch.distributed.get_rank())
+# seed_all(SEED + torch.distributed.get_rank())
 
 
 class SCDataset(Dataset):
@@ -81,7 +90,7 @@ class SCDataset(Dataset):
         self.label = label
 
     def __getitem__(self, index):
-        rand_start = random.randint(0, self.data.shape[0]-1)
+        rand_start = random.randint(0, self.data.shape[0] - 1)
         full_seq = self.data[rand_start].toarray()[0]
         full_seq[full_seq > (CLASS - 2)] = CLASS - 2
         full_seq = torch.from_numpy(full_seq).long()
@@ -94,7 +103,7 @@ class SCDataset(Dataset):
 
 
 class Identity(torch.nn.Module):
-    def __init__(self, dropout = 0., h_dim = 100, out_dim = 10):
+    def __init__(self, dropout=0., h_dim=100, out_dim=10):
         super(Identity, self).__init__()
         self.conv1 = nn.Conv2d(1, 1, (1, 200))
         self.act = nn.ReLU()
@@ -107,10 +116,10 @@ class Identity(torch.nn.Module):
         self.fc3 = nn.Linear(in_features=h_dim, out_features=out_dim, bias=True)
 
     def forward(self, x):
-        x = x[:,None,:,:]
+        x = x[:, None, :, :]
         x = self.conv1(x)
         x = self.act(x)
-        x = x.view(x.shape[0],-1)
+        x = x.view(x.shape[0], -1)
         x = self.fc1(x)
         x = self.act1(x)
         x = self.dropout1(x)
@@ -120,9 +129,11 @@ class Identity(torch.nn.Module):
         x = self.fc3(x)
         return x
 
+
 data = sc.read_h5ad(args.data_path)
-label_dict, label = np.unique(np.array(data.obs['celltype']), return_inverse=True)  # Convert strings categorical to integrate categorical, and label_dict[label] can be restored
-#store the label dict and label for prediction
+label_dict, label = np.unique(np.array(data.obs['celltype']),
+                              return_inverse=True)  # Convert strings categorical to integrate categorical, and label_dict[label] can be restored
+# store the label dict and label for prediction
 with open('label_dict', 'wb') as fp:
     pkl.dump(label_dict, fp)
 with open('label', 'wb') as fp:
@@ -145,23 +156,24 @@ for index_train, index_val in sss.split(data, label):
     train_dataset = SCDataset(data_train, label_train)
     val_dataset = SCDataset(data_val, label_val)
 
-train_sampler = DistributedSampler(train_dataset)
-val_sampler = DistributedSampler(val_dataset)
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, sampler=train_sampler)
-val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, sampler=val_sampler)
+# train_sampler = DistributedSampler(train_dataset)
+# val_sampler = DistributedSampler(val_dataset)
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE)
+val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE)
 
 model = PerformerLM(
-    num_tokens = CLASS,
-    dim = 200,
-    depth = 6,
-    max_seq_len = SEQ_LEN,
-    heads = 10,
-    local_attn_heads = 0,
-    g2v_position_emb = POS_EMBED_USING
+    num_tokens=CLASS,
+    dim=200,
+    depth=6,
+    max_seq_len=SEQ_LEN,
+    heads=10,
+    local_attn_heads=0,
+    g2v_position_emb=POS_EMBED_USING,
+    gene2vec_weight_path=args.gene2vec_path,
 )
 
 path = args.model_path
-ckpt = torch.load(path)
+ckpt = torch.load(path, map_location=torch.device('cpu'))
 model.load_state_dict(ckpt['model_state_dict'])
 for param in model.parameters():
     param.requires_grad = False
@@ -171,8 +183,8 @@ for param in model.performer.net.layers[-2].parameters():
     param.requires_grad = True
 model.to_out = Identity(dropout=0., h_dim=128, out_dim=label_dict.shape[0])
 model = model.to(device)
-model = DDP(model, device_ids=[local_rank], output_device=local_rank)
-
+# model = DDP(model, device_ids=[local_rank], output_device=local_rank)
+print('Model loaded')
 # optimizer
 optimizer = Adam(model.parameters(), lr=LEARNING_RATE)
 scheduler = CosineAnnealingWarmupRestarts(
@@ -184,25 +196,27 @@ scheduler = CosineAnnealingWarmupRestarts(
     warmup_steps=5,
     gamma=0.9
 )
-loss_fn = nn.CrossEntropyLoss(weight=None).to(local_rank)
+loss_fn = nn.CrossEntropyLoss(weight=None).to('cpu')
 
-dist.barrier()
+# dist.barrier()
 trigger_times = 0
 max_acc = 0.0
-for i in range(1, EPOCHS+1):
-    train_loader.sampler.set_epoch(i)
+for i in range(1, EPOCHS + 1):
+    print('Epoch: ', i)
+    # train_loader.sampler.set_epoch(i)
     model.train()
-    dist.barrier()
+    # dist.barrier()
     running_loss = 0.0
     cum_acc = 0.0
     for index, (data, labels) in enumerate(train_loader):
+        print(index)
         index += 1
         data, labels = data.to(device), labels.to(device)
         if index % GRADIENT_ACCUMULATION != 0:
-            with model.no_sync():
-                logits = model(data)
-                loss = loss_fn(logits, labels)
-                loss.backward()
+            # with model.no_sync():
+            logits = model(data)
+            loss = loss_fn(logits, labels)
+            loss.backward()
         if index % GRADIENT_ACCUMULATION == 0:
             logits = model(data)
             loss = loss_fn(logits, labels)
@@ -219,16 +233,16 @@ for i in range(1, EPOCHS+1):
         cum_acc += torch.true_divide(correct_num, pred_num).mean().item()
     epoch_loss = running_loss / index
     epoch_acc = 100 * cum_acc / index
-    epoch_loss = get_reduced(epoch_loss, local_rank, 0, world_size)
-    epoch_acc = get_reduced(epoch_acc, local_rank, 0, world_size)
+    epoch_loss = get_reduced(epoch_loss, 'cpu', 0, world_size)
+    epoch_acc = get_reduced(epoch_acc, 'cpu', 0, world_size)
     if is_master:
         print(f'    ==  Epoch: {i} | Training Loss: {epoch_loss:.6f} | Accuracy: {epoch_acc:6.4f}%  ==')
-    dist.barrier()
+    # dist.barrier()
     scheduler.step()
 
     if i % VALIDATE_EVERY == 0:
         model.eval()
-        dist.barrier()
+        # dist.barrier()
         running_loss = 0.0
         predictions = []
         truths = []
@@ -247,15 +261,15 @@ for i in range(1, EPOCHS+1):
                 truths.append(labels_v)
             del data_v, labels_v, logits, final_prob, final
             # gather
-            predictions = distributed_concat(torch.cat(predictions, dim=0), len(val_sampler.dataset), world_size)
-            truths = distributed_concat(torch.cat(truths, dim=0), len(val_sampler.dataset), world_size)
+            predictions = distributed_concat(torch.cat(predictions, dim=0), len(val_dataset), world_size)
+            truths = distributed_concat(torch.cat(truths, dim=0), len(val_dataset), world_size)
             no_drop = predictions != -1
             predictions = np.array((predictions[no_drop]).cpu())
             truths = np.array((truths[no_drop]).cpu())
             cur_acc = accuracy_score(truths, predictions)
             f1 = f1_score(truths, predictions, average='macro')
             val_loss = running_loss / index
-            val_loss = get_reduced(val_loss, local_rank, 0, world_size)
+            val_loss = get_reduced(val_loss, 'cpu', 0, world_size)
             if is_master:
                 print(f'    ==  Epoch: {i} | Validation Loss: {val_loss:.6f} | F1 Score: {f1:.6f}  ==')
                 print(confusion_matrix(truths, predictions))

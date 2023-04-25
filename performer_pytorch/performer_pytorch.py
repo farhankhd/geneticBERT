@@ -437,9 +437,9 @@ def apply_rotary_pos_emb(q, k, sinu_pos):
 # sinusoidal positional embeddings
 
 class Gene2VecPositionalEmbedding(nn.Module):
-    def __init__(self, dim, max_seq_len):
+    def __init__(self, dim, max_seq_len, gene2vec_weight_path):
         super().__init__()
-        gene2vec_weight = np.load('../data/gene2vec_16906.npy')
+        gene2vec_weight = np.load(gene2vec_weight_path)
         gene2vec_weight = np.concatenate((gene2vec_weight, np.zeros((1, gene2vec_weight.shape[1]))), axis=0)
         gene2vec_weight = torch.from_numpy(gene2vec_weight)
         self.emb = nn.Embedding.from_pretrained(gene2vec_weight)
@@ -572,7 +572,9 @@ class PerformerLM(nn.Module):
         tie_embed = False,                  # False: output is num of tokens, True: output is dim of tokens  //multiply final embeddings with token weights for logits, like gpt decoder//
         g2v_position_emb = True,            # priority: gene2vec, no embedding
         auto_check_redraw = True,
-        qkv_bias = False
+        qkv_bias = False,
+        gene2vec_weight_path = None
+
     ):
         super().__init__()
         local_attn_heads = cast_tuple(local_attn_heads)
@@ -581,7 +583,7 @@ class PerformerLM(nn.Module):
         self.token_emb = nn.Embedding(num_tokens, dim)
 
         if g2v_position_emb:
-            self.pos_emb = Gene2VecPositionalEmbedding(dim, max_seq_len)
+            self.pos_emb = Gene2VecPositionalEmbedding(dim, max_seq_len, gene2vec_weight_path)
             self.layer_pos_emb = Always(None)
         else:
             self.pos_emb = torch.zeros_like
