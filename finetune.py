@@ -131,8 +131,7 @@ class Identity(torch.nn.Module):
 
 
 data = sc.read_h5ad(args.data_path)
-label_dict, label = np.unique(np.array(data.obs['celltype']),
-                              return_inverse=True)  # Convert strings categorical to integrate categorical, and label_dict[label] can be restored
+label_dict, label = np.unique(np.array(data.obs['celltype']), return_inverse=True)  # Convert strings categorical to integrate categorical, and label_dict[label] can be restored
 # store the label dict and label for prediction
 with open('label_dict', 'wb') as fp:
     pkl.dump(label_dict, fp)

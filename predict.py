@@ -30,8 +30,8 @@ parser.add_argument("--seed", type=int, default=2021, help='Random seed.')
 parser.add_argument("--novel_type", type=bool, default=False, help='Novel cell tpye exists or not.')
 parser.add_argument("--unassign_thres", type=float, default=0.5, help='The confidence score threshold for novel cell type annotation.')
 parser.add_argument("--pos_embed", type=bool, default=True, help='Using Gene2vec encoding or not.')
-parser.add_argument("--data_path", type=str, default='./data/Zheng68K.h5ad', help='Path of data for predicting.')
-parser.add_argument("--model_path", type=str, default='./finetuned.pth', help='Path of finetuned model.')
+parser.add_argument("--data_path", type=str, default='/home/rohola/codes/geneticBERT/data/Zheng68K.h5ad', help='Path of data for predicting.')
+parser.add_argument("--model_path", type=str, default='/home/rohola/codes/geneticBERT/data/panglao_pretrained.pth', help='Path of finetuned model.')
 
 args = parser.parse_args()
 
@@ -92,12 +92,13 @@ model = PerformerLM(
     max_seq_len = SEQ_LEN,
     heads = 10,
     local_attn_heads = 0,
-    g2v_position_emb = True
+    g2v_position_emb = True,
+    gene2vec_weight_path= '/home/rohola/codes/geneticBERT/data/gene2vec_16906.npy'
 )
 model.to_out = Identity(dropout=0., h_dim=128, out_dim=label_dict.shape[0])
 
 path = args.model_path
-ckpt = torch.load(path)
+ckpt = torch.load(path, map_location=torch.device('cpu'))
 model.load_state_dict(ckpt['model_state_dict'])
 for param in model.parameters():
     param.requires_grad = False
