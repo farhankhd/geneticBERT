@@ -184,8 +184,9 @@ for epoch in range(epochs):
 
         print(f"Batch {i + 1} - Loss: {loss.item()}")
 
-    # Save checkpoint
-    save_checkpoint(model, optimizer, epoch + 1, output_dir)
+    if (epoch + 1) % 10 == 0:
+        # Save checkpoint
+        save_checkpoint(model, optimizer, epoch + 1, output_dir)
 
     # Evaluate
     eval_loss = evaluate(model, eval_dataloader, device)
