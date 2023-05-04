@@ -140,12 +140,12 @@ def evaluate(model, eval_dataloader, device):
 vocab = [item.rstrip() for item in open("gene_data/gene_vocab.txt").readlines()]
 tokenizer = GeneTokenizer(vocab)
 
-train_path = "gene_data/train.txt"
+train_path = "gene_data/train_genes.txt"
 expression_train_path = "gene_data/train_expression.txt"
 train_dataset = GeneticDataset(train_path, expression_train_path, tokenizer, 512)
 
 
-eval_path = "gene_data/eval.txt"
+eval_path = "gene_data/eval_genes.txt"
 expression_eval_path = "gene_data/eval_expression.txt"
 eval_dataset = GeneticDataset(eval_path, expression_eval_path, tokenizer, 512)
 
@@ -161,7 +161,7 @@ data_collator = DataCollatorForLanguageModeling(
 # Set up the DataLoader
 train_dataloader = DataLoader(
     train_dataset,
-    batch_size=2,
+    batch_size=5,
     collate_fn=data_collator
 )
 
