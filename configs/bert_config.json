@@ -1,0 +1,18 @@
+{
+    "n_epochs": 100,
+    "train_batch_size": 2,
+    "eval_batch_size": 2,
+    "learning_rate": 5e-5,
+    "gene_vocab_file": "gene_data/gene_vocab.txt",
+    "train_data_file": "gene_data/train.txt",
+    "eval_data_file": "gene_data/eval.txt",
+    "train_expression_file": "gene_data/train_expression.txt",
+    "eval_expression_file": "gene_data/eval_expression.txt",
+    "output_dir": "gene_data/checkpoints",
+    "max_length": 512,
+    "save_every": 2,
+    "expression_max_value": 10.0,
+    "expression_min_value": 0.0,
+    "num_bins": 100,
+    "device": "cpu"
+}

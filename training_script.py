@@ -5,10 +5,8 @@ from transformers import PreTrainedTokenizer
 import torch.optim as optim
 import os
 import numpy as np
-
-MIN_VALUE = 0.0
-MAX_VALUE = 12.0
-NUM_BINS = 100
+import wandb
+from utils.utils import load_config
 
 class GeneticDataset(Dataset):
 
@@ -34,7 +32,7 @@ class GeneticDataset(Dataset):
 
         # binning the expression values
         # Define the bin edges
-        bin_edges = np.linspace(MIN_VALUE, MAX_VALUE, NUM_BINS + 1)
+        bin_edges = np.linspace(config.expression_min_value, config.expression_max_value, config.num_bins + 1)
 
         # Get the bin indices for each value in the list
         bin_indices = np.digitize(expression, bin_edges) - 1
@@ -103,19 +101,15 @@ def save_checkpoint(model, optimizer, epoch, output_dir):
     checkpoint_dir = os.path.join(output_dir, f"checkpoint-{epoch}")
     os.makedirs(checkpoint_dir, exist_ok=True)
     model.save_pretrained(checkpoint_dir)
-
     optimizer_path = os.path.join(checkpoint_dir, "optimizer.pt")
     torch.save(optimizer.state_dict(), optimizer_path)
-
     print(f"Checkpoint saved at {checkpoint_dir}")
 
 
 def load_checkpoint(checkpoint_dir, model, optimizer):
     model = model.from_pretrained(checkpoint_dir)
-
     optimizer_path = os.path.join(checkpoint_dir, "optimizer.pt")
     optimizer.load_state_dict(torch.load(optimizer_path))
-
     return model, optimizer
 
 def evaluate(model, eval_dataloader, device):
@@ -135,21 +129,20 @@ def evaluate(model, eval_dataloader, device):
     return avg_loss
 
 
+config = load_config("configs/bert_config.json")
+
+wandb.init(project="gene_data_analysis", config={"n_epochs": config.n_epochs,
+                                                 "batch_size": config.train_batch_size,
+                                                 "lr": config.learning_rate})
+
 # sample vocab
 
-vocab = [item.rstrip() for item in open("gene_data/gene_vocab.txt").readlines()]
+vocab = [item.rstrip() for item in open(config.gene_vocab_file).readlines()]
 tokenizer = GeneTokenizer(vocab)
 
-train_path = "gene_data/train.txt"
-expression_train_path = "gene_data/train_expression.txt"
-train_dataset = GeneticDataset(train_path, expression_train_path, tokenizer, 512)
+train_dataset = GeneticDataset(config.train_data_file, config.train_expression_file, tokenizer, config.max_length)
 
-
-eval_path = "gene_data/eval.txt"
-expression_eval_path = "gene_data/eval_expression.txt"
-eval_dataset = GeneticDataset(eval_path, expression_eval_path, tokenizer, 512)
-
-output_dir = "gene_data/checkpoints"
+eval_dataset = GeneticDataset(config.eval_data_file, config.eval_expression_file, tokenizer, config.max_length)
 
 # Set up the data collator
 data_collator = DataCollatorForLanguageModeling(
@@ -161,32 +154,37 @@ data_collator = DataCollatorForLanguageModeling(
 # Set up the DataLoader
 train_dataloader = DataLoader(
     train_dataset,
-    batch_size=2,
+    batch_size=config.train_batch_size,
     collate_fn=data_collator
 )
 
 eval_dataloader = DataLoader(
     eval_dataset,
-    batch_size=2,
+    batch_size=config.eval_batch_size,
     collate_fn=data_collator,
     shuffle=False
 )
 
-# Set up the model
-config = BertConfig(vocab_size=len(tokenizer.vocab), type_vocab_size=NUM_BINS)
-model = BertForMaskedLM(config=config).to('cpu')
-
-# Set up the optimizer
-optimizer = optim.AdamW(model.parameters(), lr=5e-5)
-
 # Set device
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device(config.device if torch.cuda.is_available() else "cpu")
+
+# Set up the model
+bert_config = BertConfig(vocab_size=len(tokenizer.vocab), type_vocab_size=config.num_bins)
+model = BertForMaskedLM(config=bert_config).to(device)
+
+# wandb.watch(model, log="all")  # Log gradients and parameters
+wandb.watch(model, log='gradients', log_freq=50, log_graph=True)
+# Set up the optimizer
+optimizer = optim.AdamW(model.parameters(), lr=config.learning_rate)
+
 model.to(device)
 
+model_total_params = sum(p.numel() for p in model.parameters())
+print(f"Total number of parameters: {model_total_params}")
+
 # Training loop
-epochs = 3
-for epoch in range(epochs):
-    print(f"Epoch {epoch + 1}/{epochs}")
+for epoch in range(config.n_epochs):
+    print(f"Epoch {epoch + 1}/{config.n_epochs}")
 
     model.train()
     for i, batch in enumerate(train_dataloader):
@@ -204,11 +202,14 @@ for epoch in range(epochs):
         optimizer.step()
 
         print(f"Batch {i + 1} - Loss: {loss.item()}")
+        wandb.log({"batch_loss": loss.item()})
 
-    if (epoch + 1) % 10 == 0:
+    if (epoch + 1) % config.save_every == 0:
         # Save checkpoint
-        save_checkpoint(model, optimizer, epoch + 1, output_dir)
+        save_checkpoint(model, optimizer, epoch + 1, config.output_dir)
 
     # Evaluate
     eval_loss = evaluate(model, eval_dataloader, device)
     print(f"Epoch {epoch + 1} - Evaluation Loss: {eval_loss}")
+    wandb.log({"epoch": epoch + 1, "eval_loss": eval_loss})  # Log evaluation loss
+
