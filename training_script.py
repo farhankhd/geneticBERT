@@ -140,9 +140,22 @@ wandb.init(project="gene_data_analysis", config={"n_epochs": config.n_epochs,
 vocab = [item.rstrip() for item in open(config.gene_vocab_file).readlines()]
 tokenizer = GeneTokenizer(vocab)
 
+<<<<<<< HEAD
 train_dataset = GeneticDataset(config.train_data_file, config.train_expression_file, tokenizer, config.max_length)
 
 eval_dataset = GeneticDataset(config.eval_data_file, config.eval_expression_file, tokenizer, config.max_length)
+=======
+train_path = "gene_data/train_genes.txt"
+expression_train_path = "gene_data/train_expression.txt"
+train_dataset = GeneticDataset(train_path, expression_train_path, tokenizer, 512)
+
+
+eval_path = "gene_data/eval_genes.txt"
+expression_eval_path = "gene_data/eval_expression.txt"
+eval_dataset = GeneticDataset(eval_path, expression_eval_path, tokenizer, 512)
+
+output_dir = "gene_data/checkpoints"
+>>>>>>> 853401ddbcc28dff2529ca2bf87d23b685a3d311
 
 # Set up the data collator
 data_collator = DataCollatorForLanguageModeling(
@@ -154,7 +167,11 @@ data_collator = DataCollatorForLanguageModeling(
 # Set up the DataLoader
 train_dataloader = DataLoader(
     train_dataset,
+<<<<<<< HEAD
     batch_size=config.train_batch_size,
+=======
+    batch_size=5,
+>>>>>>> 853401ddbcc28dff2529ca2bf87d23b685a3d311
     collate_fn=data_collator
 )
 
